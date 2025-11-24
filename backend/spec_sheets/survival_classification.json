@@ -1,0 +1,35 @@
+{
+  "project_metadata": {
+    "project_name": "Survival Outcome Classification",
+    "owner": "oncology_lab@example.com",
+    "created": "2025-11-24T00:00:00Z"
+  },
+  "research_problem": {
+    "problem_statement": "Classify patient survival outcome (alive vs deceased) from baseline tumor gene expression profiles using lightweight ML models.",
+    "success_metrics": [
+      "accuracy",
+      "precision",
+      "recall",
+      "F1-score",
+      "AUROC"
+    ]
+  },
+  "goals": {
+    "primary_metric": "accuracy",
+    "target_value": 0.80,
+    "secondary_goals": {
+      "f1": 0.70,
+      "roc_auc": 0.50
+    },
+    "description": "Achieve at least 80% accuracy in classifying patient survival outcomes"
+  },
+  "data_sources": [
+    "tcga_brca_500samples_expr_survival.csv (500 breast cancer samples, ~20,000 gene expression features, target: vital_status ∈ {0,1})"
+  ],
+  "budget_constraints": {
+    "max_financial_cost": 300.0,
+    "max_time_hours": 72,
+    "max_iterations": 5,
+    "reporting_period_hours": 12
+  }
+}

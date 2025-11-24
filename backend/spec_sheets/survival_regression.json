@@ -1,0 +1,35 @@
+{
+  "project_metadata": {
+    "project_name": "Survival Time Regression",
+    "owner": "oncology_lab@example.com",
+    "created": "2025-11-24T00:00:00Z"
+  },
+  "research_problem": {
+    "problem_statement": "Predict overall survival time in days from tumor gene expression to identify high-risk patients earlier.",
+    "success_metrics": [
+     "accuracy",
+      "precision",
+      "recall",
+      "F1-score",
+      "AUROC"
+    ]
+  },
+  "goals": {
+    "primary_metric": "accuracy",
+    "target_value": 0.75,
+    "secondary_goals": {
+      "f1": 0.75,
+      "roc_auc": 0.50
+    },
+    "description": "Achieve at least 75% accuracy in survival prediction (classification proxy)"
+  },
+  "data_sources": [
+    "tcga_brca_500samples_expr_survival.csv (500 breast cancer samples, ~20,000 gene expression features, target: survival_time_days; requires cleaning of negative or invalid values)"
+  ],
+  "budget_constraints": {
+    "max_financial_cost": 350.0,
+    "max_time_hours": 96,
+    "max_iterations": 6,
+    "reporting_period_hours": 12
+  }
+}
