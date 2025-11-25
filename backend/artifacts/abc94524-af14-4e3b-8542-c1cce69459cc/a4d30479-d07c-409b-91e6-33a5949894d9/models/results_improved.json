@@ -1,0 +1,15 @@
+{
+  "model": "RandomForestClassifier",
+  "accuracy": 0.79,
+  "f1": 0.7679329608938547,
+  "precision": 0.7470652173913044,
+  "recall": 0.79,
+  "roc_auc": 0.6056587091069849,
+  "cv_mean": 0.9195477903391573,
+  "cv_std": 0.008308486481311727,
+  "improvements": [
+    "5-fold CV",
+    "SMOTE",
+    "Feature scaling"
+  ]
+}

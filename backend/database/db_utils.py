@@ -57,6 +57,17 @@ class ProjectService:
             db.commit()
             db.refresh(project)
         return project
+    
+    @staticmethod
+    def update_current_cycle(db: Session, project_id: str, cycle_number: int) -> Optional[Project]:
+        """Update current cycle number"""
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project:
+            project.current_cycle_number = cycle_number
+            project.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(project)
+        return project
 
 
 class CycleService:

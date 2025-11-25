@@ -179,6 +179,10 @@ def test_agents():
         print(f"   Duration: {plan['estimated_duration']}")
         print(f"   Total GPU: {plan['total_gpu_estimate']}h")
         
+        if plan.get('mcp_query'):
+            print(f"\n🔍 MCP QUERY (for Learner):")
+            print(f"   \"{plan['mcp_query']}\"")
+        
         print(f"\n📝 TASKS ({len(plan['tasks'])}):")
         for i, task in enumerate(plan['tasks'], 1):
             print(f"\n   {i}. [{task['task_id']}] {task['name']}")
@@ -361,9 +365,6 @@ def test_agents():
         )
         print(f"   ✅ Saved assessor output to database")
         
-        # Update cycle to completed state
-        CycleService.update_cycle_state(db, cycle.id, 0.4, 'pm', 'completed')
-        
         # Store Cycle 1 results
         cycle1_assessment = assessment
         cycle1_results = execution_results
@@ -379,6 +380,10 @@ def test_agents():
             print("🔄 STARTING CYCLE 2 - APPLYING IMPROVEMENTS")
             print("="*80)
             
+            # Mark cycle 1 as completed before starting cycle 2
+            CycleService.update_cycle_state(db, cycle.id, 1.0, 'assessor', 'completed')
+            print(f"   ✅ Cycle 1 marked as completed")
+            
             current_cycle = 2
             recommendations = assessment['recommendations']
             
@@ -389,6 +394,9 @@ def test_agents():
             # Create new cycle
             print("\n🔄 Creating Cycle 2...")
             cycle2 = CycleService.create_cycle(db, project.id, 2)
+            
+            # Update project's current cycle number
+            ProjectService.update_current_cycle(db, project.id, 2)
             print(f"   Cycle 2 ID: {cycle2.id}")
             
             # Update status

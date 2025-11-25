@@ -27,6 +27,7 @@ class PlannerOutput(BaseModel):
     total_gpu_estimate: float = Field(description="Total estimated GPU hours")
     estimated_duration: str = Field(description="Estimated total duration (e.g., '4-6 hours')")
     risk_factors: List[str] = Field(description="Potential risks or challenges")
+    mcp_query: str = Field(description="Query to pass to MCP server for biomedical knowledge retrieval")
 
 
 class PlannerAgent:
@@ -44,21 +45,21 @@ class PlannerAgent:
             model=model,
             temperature=0.3,  # Lower temperature for more consistent planning
             format="json",  # Request JSON output from Ollama
-            num_predict=500  # Max 500 tokens output
+            num_predict=2000  # Max tokens output
         )
     
     def create_system_prompt(self) -> str:
         """Create the system prompt for the planner agent"""
-        return """You are a research planner. Create a CONCISE execution plan in JSON format (max 500 tokens).
+        return """You are a research planner. Create an execution plan in JSON format.
 
 REQUIRED output structure:
 {
-  "summary": "Brief one-line overview",
+  "summary": "overview",
   "tasks": [
     {
       "task_id": "T1",
-      "name": "Short task name",
-      "description": "One brief sentence",
+      "name": "task name",
+      "description": "brief sentences",
       "dependencies": [],
       "gpu_hours": 0.0,
       "priority": "high"
@@ -66,8 +67,15 @@ REQUIRED output structure:
   ],
   "total_gpu_estimate": 0.0,
   "estimated_duration": "X-Y hours",
-  "risk_factors": ["risk1", "risk2", "risk3"]
+  "risk_factors": ["risk1", "risk2", "risk3"],
+  "mcp_query": "What genes are responsible for [disease/condition] and their role in [outcome]?"
 }
+
+CRITICAL: mcp_query should be a specific biomedical question based on the problem statement.
+Examples:
+- "What genes are responsible for breast cancer survival and prognosis?"
+- "Which genes regulate tumor progression and patient outcomes in lung cancer?"
+- "What are the key biomarkers for predicting survival in colon cancer patients?"
 
 MUST include 2-3 risk_factors. Keep all text brief. Return ONLY valid JSON."""
     
@@ -83,6 +91,20 @@ MUST include 2-3 risk_factors. Keep all text brief. Return ONLY valid JSON."""
         baseline = problem.get('baseline', 'Not specified')
         gpu_budget = resources.get('gpu_budget_hours', 4)
         
+        # Extract disease/condition from problem statement for MCP query hint
+        disease_hint = ""
+        problem_lower = problem_statement.lower()
+        if 'breast' in problem_lower:
+            disease_hint = "breast cancer"
+        elif 'lung' in problem_lower:
+            disease_hint = "lung cancer"
+        elif 'colon' in problem_lower:
+            disease_hint = "colon cancer"
+        elif 'survival' in problem_lower:
+            disease_hint = "cancer survival"
+        elif 'tumor' in problem_lower:
+            disease_hint = "tumor"
+        
         return f"""Create execution plan for:
 Problem: {problem_statement}
 Dataset: {dataset}
@@ -91,7 +113,12 @@ Baseline: {baseline}
 GPU Budget: {gpu_budget}h
 
 Create 3-4 brief tasks: data prep, baseline, evaluation.
-Keep all descriptions to ONE sentence. Return valid JSON only."""
+Keep all descriptions to ONE sentence.
+
+IMPORTANT: Generate an mcp_query - a biomedical question asking what genes/biomarkers are responsible for the condition in the problem statement.
+{f'Focus on: {disease_hint}' if disease_hint else ''}
+
+Return valid JSON only."""
     
     def plan(self, spec_sheet: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -126,6 +153,11 @@ Keep all descriptions to ONE sentence. Return valid JSON only."""
             
             # Parse and validate JSON
             plan_data = json.loads(content)
+            
+            # Ensure mcp_query exists
+            if 'mcp_query' not in plan_data or not plan_data['mcp_query']:
+                plan_data['mcp_query'] = self._generate_mcp_query(spec_sheet)
+            
             validated_plan = PlannerOutput(**plan_data)
             
             return validated_plan.model_dump()
@@ -138,6 +170,37 @@ Keep all descriptions to ONE sentence. Return valid JSON only."""
         except Exception as e:
             print(f"Planner error: {e}")
             return self._create_fallback_plan(spec_sheet)
+    
+    def _generate_mcp_query(self, spec_sheet: Dict[str, Any]) -> str:
+        """Generate an MCP query based on the problem statement"""
+        problem = spec_sheet.get('research_problem', {})
+        problem_statement = problem.get('problem_statement', '').lower()
+        
+        # Extract disease type
+        if 'breast' in problem_statement:
+            disease = "breast cancer"
+        elif 'lung' in problem_statement:
+            disease = "lung cancer"
+        elif 'colon' in problem_statement:
+            disease = "colon cancer"
+        elif 'cancer' in problem_statement:
+            disease = "cancer"
+        elif 'tumor' in problem_statement:
+            disease = "tumor"
+        else:
+            disease = "the disease"
+        
+        # Extract outcome type
+        if 'survival' in problem_statement:
+            outcome = "survival prediction and prognosis"
+        elif 'classification' in problem_statement:
+            outcome = "classification and diagnosis"
+        elif 'outcome' in problem_statement:
+            outcome = "patient outcomes"
+        else:
+            outcome = "patient outcomes and prognosis"
+        
+        return f"What genes and biomarkers are responsible for {disease} {outcome}? Which genetic factors influence {disease} progression?"
     
     def _create_fallback_plan(self, spec_sheet: Dict[str, Any]) -> Dict[str, Any]:
         """Create a basic fallback plan if AI generation fails"""
@@ -152,6 +215,9 @@ Keep all descriptions to ONE sentence. Return valid JSON only."""
         dataset = data_sources[0] if data_sources else "provided dataset"
         max_time = budget.get('max_time_hours', budget.get('max_time', 12))
         gpu_budget = max_time * 0.2  # simple heuristic
+        
+        # Generate MCP query for fallback
+        mcp_query = self._generate_mcp_query(spec_sheet)
         
         fallback = {
             "summary": "Standard ML pipeline: data prep, baseline, evaluation",
@@ -187,9 +253,8 @@ Keep all descriptions to ONE sentence. Return valid JSON only."""
                 "Dataset may require additional cleaning",
                 "GPU availability on cluster",
                 "Model convergence issues"
-            ]
+            ],
+            "mcp_query": mcp_query
         }
         
         return fallback
-
-

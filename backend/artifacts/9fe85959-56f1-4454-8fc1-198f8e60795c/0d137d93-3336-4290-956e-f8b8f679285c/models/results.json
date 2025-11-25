@@ -1,0 +1,8 @@
+{
+  "model": "RandomForestClassifier",
+  "accuracy": 0.87,
+  "f1": 0.8485664437336434,
+  "precision": 0.8424468085106382,
+  "recall": 0.87,
+  "roc_auc": 0.5278514588859418
+}
