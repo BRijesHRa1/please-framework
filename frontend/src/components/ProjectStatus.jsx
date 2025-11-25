@@ -4,7 +4,8 @@ import {
   Brain, Cpu, BarChart3, FileText, Clipboard,
   Wifi, WifiOff, ChevronDown, ChevronUp, ArrowRight,
   Zap, Server, Database, Code, Terminal, Target,
-  AlertTriangle, TrendingUp, Package, ListChecks
+  AlertTriangle, TrendingUp, Package, ListChecks,
+  RefreshCw, Activity, GitBranch
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 
@@ -32,6 +33,14 @@ const agentDescriptions = {
   pm: 'Generating final report and recommendations...'
 };
 
+const agentEmojis = {
+  planner: '🤖',
+  learner: '🧠',
+  executor: '⚙️',
+  assessor: '📊',
+  pm: '📋'
+};
+
 export default function ProjectStatus({ project, onComplete }) {
   const [status, setStatus] = useState(null);
   const [projectDetail, setProjectDetail] = useState(null);
@@ -39,21 +48,40 @@ export default function ProjectStatus({ project, onComplete }) {
   const [mcpConnected, setMcpConnected] = useState(true);
   const [expandedAgents, setExpandedAgents] = useState({});
   const [connectionLog, setConnectionLog] = useState([]);
+  const [previousAgent, setPreviousAgent] = useState(null);
 
   const addLog = (message, type = 'info') => {
-    setConnectionLog(prev => [...prev, { 
-      message, 
-      type, 
-      time: new Date().toLocaleTimeString() 
-    }].slice(-15));
+    setConnectionLog(prev => {
+      // Avoid duplicate consecutive messages
+      if (prev.length > 0 && prev[prev.length - 1].message === message) {
+        return prev;
+      }
+      return [...prev, { 
+        message, 
+        type, 
+        time: new Date().toLocaleTimeString() 
+      }].slice(-20);
+    });
   };
+
+  // Auto-expand running agent
+  useEffect(() => {
+    if (status?.current_agent && status.current_agent !== previousAgent) {
+      setPreviousAgent(status.current_agent);
+      // Auto-expand the current running agent
+      setExpandedAgents(prev => ({
+        ...prev,
+        [status.current_agent]: true
+      }));
+    }
+  }, [status?.current_agent, previousAgent]);
 
   useEffect(() => {
     if (!project?.project_id) return;
 
-    addLog('Connecting to PLEASe Backend...', 'info');
-    setTimeout(() => addLog('MCP Connection established', 'success'), 500);
-    setTimeout(() => addLog('Pipeline initialized', 'success'), 1000);
+    addLog('🔌 Connecting to PLEASe Backend...', 'info');
+    setTimeout(() => addLog('✅ MCP Connection established', 'success'), 500);
+    setTimeout(() => addLog('🚀 Pipeline initialized', 'success'), 1000);
 
     const pollStatus = async () => {
       try {
@@ -66,19 +94,46 @@ export default function ProjectStatus({ project, onComplete }) {
         if (detailRes) setProjectDetail(detailRes.data);
         setMcpConnected(true);
 
-        if (statusRes.data.current_agent) {
-          const agentLabel = agentLabels[statusRes.data.current_agent];
-          addLog(`${agentLabel} processing...`, 'agent');
+        const currentAgent = statusRes.data.current_agent;
+        const currentCycle = statusRes.data.current_cycle;
+
+        // Add detailed agent logs
+        if (currentAgent && currentAgent !== previousAgent) {
+          const emoji = agentEmojis[currentAgent] || '🔄';
+          const agentLabel = agentLabels[currentAgent];
+          
+          if (currentCycle > 1) {
+            addLog(`🔄 Cycle ${currentCycle} - ${emoji} ${agentLabel} starting...`, 'agent');
+          } else {
+            addLog(`${emoji} ${agentLabel} starting...`, 'agent');
+          }
+        }
+
+        // Check for completed agents and log their output
+        if (detailRes?.data?.agent_outputs) {
+          for (const [cycleKey, outputs] of Object.entries(detailRes.data.agent_outputs)) {
+            for (const output of outputs) {
+              const logKey = `${cycleKey}_${output.agent_name}_complete`;
+              if (!connectionLog.some(l => l.key === logKey) && output.execution_time_seconds) {
+                const emoji = agentEmojis[output.agent_name] || '✅';
+                const agentLabel = agentLabels[output.agent_name];
+                addLog(`${emoji} ${agentLabel} completed (${output.execution_time_seconds.toFixed(1)}s)`, 'success');
+              }
+            }
+          }
         }
 
         if (statusRes.data.status === 'completed') {
-          addLog('Pipeline completed successfully!', 'success');
+          addLog('🎉 Pipeline completed successfully!', 'success');
+          addLog('📄 Report generated and saved to database', 'success');
           onComplete?.(statusRes.data);
+        } else if (statusRes.data.status === 'failed') {
+          addLog('❌ Pipeline failed!', 'error');
         }
       } catch (err) {
         setError(err.message);
         setMcpConnected(false);
-        addLog('Connection error - retrying...', 'error');
+        addLog('⚠️ Connection error - retrying...', 'error');
       }
     };
 
@@ -118,6 +173,23 @@ export default function ProjectStatus({ project, onComplete }) {
     return null;
   };
 
+  // Get cycle comparison data
+  const getCycleComparison = () => {
+    if (!projectDetail?.agent_outputs) return null;
+    
+    const cycle1Executor = projectDetail.agent_outputs.cycle_1?.find(o => o.agent_name === 'executor');
+    const cycle2Executor = projectDetail.agent_outputs.cycle_2?.find(o => o.agent_name === 'executor');
+    
+    if (!cycle1Executor || !cycle2Executor) return null;
+    
+    const c1 = cycle1Executor.output_data?.baseline_results || {};
+    const c2 = cycle2Executor.output_data?.baseline_results || {};
+    
+    return { cycle1: c1, cycle2: c2 };
+  };
+
+  const cycleComparison = getCycleComparison();
+
   if (!status) {
     return (
       <div className="flex flex-col items-center justify-center py-12 gap-4">
@@ -129,6 +201,129 @@ export default function ProjectStatus({ project, onComplete }) {
 
   return (
     <div className="w-full max-w-4xl mx-auto animate-fade-in-up">
+      {/* Cycle Progress Banner - Prominent Display */}
+      <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-slate-800 via-slate-800/80 to-slate-800 border border-slate-700 overflow-hidden relative">
+        <div className="absolute inset-0 bg-gradient-to-r from-sky-500/10 via-violet-500/10 to-orange-500/10 opacity-50" />
+        <div className="relative flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className={`
+              w-16 h-16 rounded-2xl flex items-center justify-center relative
+              ${status.status === 'running' 
+                ? 'bg-gradient-to-br from-sky-500/30 to-violet-500/30' 
+                : status.status === 'completed'
+                ? 'bg-gradient-to-br from-emerald-500/30 to-emerald-600/30'
+                : 'bg-gradient-to-br from-red-500/30 to-red-600/30'}
+            `}>
+              {status.status === 'running' ? (
+                <>
+                  <RefreshCw className="w-7 h-7 text-sky-400 animate-spin" />
+                  <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-sky-500 flex items-center justify-center">
+                    <span className="text-[10px] font-bold text-white">{status.current_cycle}</span>
+                  </div>
+                </>
+              ) : status.status === 'completed' ? (
+                <>
+                  <CheckCircle2 className="w-7 h-7 text-emerald-400" />
+                  <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
+                    <span className="text-[10px] font-bold text-white">✓</span>
+                  </div>
+                </>
+              ) : (
+                <XCircle className="w-7 h-7 text-red-400" />
+              )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-bold text-white">
+                  Cycle {status.current_cycle}
+                </h3>
+                {status.status === 'running' && (
+                  <span className="px-2 py-0.5 text-xs font-medium bg-sky-500/20 text-sky-300 rounded-full border border-sky-500/30 animate-pulse">
+                    RUNNING
+                  </span>
+                )}
+                {status.status === 'completed' && (
+                  <span className="px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30">
+                    COMPLETED
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-slate-400 mt-0.5">
+                {status.current_agent ? (
+                  <>Currently: <span className="text-sky-400 font-medium">{agentLabels[status.current_agent]}</span></>
+                ) : status.status === 'completed' ? (
+                  'All agents finished successfully'
+                ) : (
+                  'Waiting to start...'
+                )}
+              </p>
+            </div>
+          </div>
+          
+          {/* Cycle Timeline */}
+          <div className="flex items-center gap-2">
+            {[1, 2].map((cycleNum) => (
+              <div 
+                key={cycleNum}
+                className={`
+                  flex items-center gap-1 px-3 py-2 rounded-lg transition-all
+                  ${cycleNum < status.current_cycle 
+                    ? 'bg-emerald-500/20 border border-emerald-500/30' 
+                    : cycleNum === status.current_cycle
+                    ? status.status === 'running' 
+                      ? 'bg-sky-500/20 border border-sky-500/30'
+                      : status.status === 'completed'
+                      ? 'bg-emerald-500/20 border border-emerald-500/30'
+                      : 'bg-slate-700/50 border border-slate-600/30'
+                    : 'bg-slate-800/50 border border-slate-700/30'}
+                `}
+              >
+                <GitBranch className={`w-4 h-4 ${
+                  cycleNum < status.current_cycle 
+                    ? 'text-emerald-400' 
+                    : cycleNum === status.current_cycle 
+                    ? status.status === 'running' ? 'text-sky-400' : 'text-emerald-400'
+                    : 'text-slate-500'
+                }`} />
+                <span className={`text-sm font-medium ${
+                  cycleNum < status.current_cycle 
+                    ? 'text-emerald-300' 
+                    : cycleNum === status.current_cycle 
+                    ? status.status === 'running' ? 'text-sky-300' : 'text-emerald-300'
+                    : 'text-slate-500'
+                }`}>
+                  C{cycleNum}
+                </span>
+                {cycleNum < status.current_cycle && (
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                )}
+                {cycleNum === status.current_cycle && status.status === 'running' && (
+                  <Activity className="w-3 h-3 text-sky-400 animate-pulse" />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        
+        {/* Cycle Progress Bar */}
+        <div className="mt-4 pt-4 border-t border-slate-700/50">
+          <div className="flex justify-between text-xs mb-2">
+            <span className="text-slate-400">Cycle {status.current_cycle} Progress</span>
+            <span className="text-sky-400 font-mono">{Math.round(status.progress_percent)}%</span>
+          </div>
+          <div className="h-2 bg-slate-900 rounded-full overflow-hidden">
+            <div 
+              className={`h-full rounded-full transition-all duration-500 ${
+                status.status === 'completed' ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                  : status.status === 'failed' ? 'bg-gradient-to-r from-red-500 to-red-400'
+                  : 'bg-gradient-to-r from-sky-500 via-violet-500 to-sky-400 bg-size-200 animate-gradient'
+              }`}
+              style={{ width: `${status.progress_percent}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
       {/* MCP Connection Status */}
       <div className={`
         flex items-center justify-between p-4 rounded-xl mb-6 border
@@ -153,41 +348,13 @@ export default function ProjectStatus({ project, onComplete }) {
         </div>
       </div>
 
-      {/* Status Header */}
-      <div className="text-center mb-6">
-        <div className={`w-20 h-20 rounded-2xl mx-auto mb-4 flex items-center justify-center ${
-          status.status === 'completed' ? 'bg-emerald-500/20' : status.status === 'failed' ? 'bg-red-500/20' : 'bg-sky-500/20'
-        }`}>
-          {status.status === 'completed' ? (
-            <CheckCircle2 className="w-10 h-10 text-emerald-400" />
-          ) : status.status === 'failed' ? (
-            <XCircle className="w-10 h-10 text-red-400" />
-          ) : (
-            <Loader2 className="w-10 h-10 text-sky-400 animate-spin" />
-          )}
-        </div>
-        <h2 className="text-2xl font-bold text-white mb-2">
-          {status.status === 'completed' ? 'Research Complete!' : status.status === 'failed' ? 'Pipeline Failed' : 'Agents Working...'}
-        </h2>
-        <p className="text-slate-400">{status.message}</p>
-      </div>
-
-      {/* Progress Bar */}
-      <div className="mb-6">
-        <div className="flex justify-between text-sm mb-2">
-          <span className="text-slate-400">Pipeline Progress</span>
-          <span className="text-sky-400 font-medium">{Math.round(status.progress_percent)}%</span>
-        </div>
-        <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
-          <div 
-            className={`h-full rounded-full transition-all duration-500 ${
-              status.status === 'completed' ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-                : status.status === 'failed' ? 'bg-gradient-to-r from-red-500 to-red-400'
-                : 'bg-gradient-to-r from-sky-500 via-violet-500 to-sky-400 bg-size-200 animate-gradient'
-            }`}
-            style={{ width: `${status.progress_percent}%` }}
-          />
-        </div>
+      {/* Section Header */}
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          <ListChecks className="w-5 h-5 text-sky-400" />
+          Agent Pipeline
+        </h3>
+        <p className="text-sm text-slate-400 mt-1">Click on each agent to view detailed output</p>
       </div>
 
       {/* Agent Pipeline */}
@@ -268,8 +435,43 @@ export default function ProjectStatus({ project, onComplete }) {
                 )}
               </button>
 
-              {/* Agent Details (Expanded) */}
-              {isExpanded && agentStatus === 'completed' && (
+              {/* Agent Details (Expanded) - Show for both running and completed */}
+              {isExpanded && (agentStatus === 'completed' || agentStatus === 'running') && (
+                <div className="p-4 bg-slate-900/50 border-t border-slate-700/50 space-y-4">
+                  
+                  {/* Running Agent Info */}
+                  {agentStatus === 'running' && (
+                    <div className="p-4 rounded-xl bg-sky-500/10 border border-sky-500/30">
+                      <div className="flex items-center gap-3">
+                        <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
+                        <div>
+                          <p className="text-sky-300 font-medium">{agentDescriptions[agent]}</p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Please wait while the agent processes the data...
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex items-center gap-4 text-xs text-slate-400">
+                        <div className="flex items-center gap-1">
+                          <Activity className="w-3 h-3 animate-pulse text-sky-400" />
+                          <span>Processing</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Zap className="w-3 h-3" />
+                          <span>llama3.2:3b</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3" />
+                          <span>Cycle {status.current_cycle}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Completed Agent Details */}
+              {isExpanded && agentStatus === 'completed' && outputData && Object.keys(outputData).length > 0 && (
                 <div className="p-4 bg-slate-900/50 border-t border-slate-700/50 space-y-4">
                   
                   {/* PLANNER OUTPUT */}
@@ -393,6 +595,19 @@ export default function ProjectStatus({ project, onComplete }) {
                       {outputData.preprocessing_notes && (
                         <OutputSection title="Preprocessing Notes" icon={FileText} color="slate">
                           <p className="text-sm text-slate-400">{outputData.preprocessing_notes}</p>
+                        </OutputSection>
+                      )}
+
+                      {outputData.references?.length > 0 && (
+                        <OutputSection title="References" icon={FileText} color="sky">
+                          <ul className="space-y-1">
+                            {outputData.references.map((ref, i) => (
+                              <li key={i} className="text-sm text-slate-300 flex items-start gap-2">
+                                <span className="text-xs text-slate-500">{i + 1}.</span>
+                                {ref}
+                              </li>
+                            ))}
+                          </ul>
                         </OutputSection>
                       )}
                     </>
@@ -549,7 +764,7 @@ export default function ProjectStatus({ project, onComplete }) {
                       <div className="p-3 bg-slate-800/50 rounded-lg flex items-center gap-2">
                         <span className="text-sm text-slate-400">Should Continue:</span>
                         <span className={`font-medium ${outputData.should_continue ? 'text-amber-400' : 'text-emerald-400'}`}>
-                          {outputData.should_continue ? 'Yes - More iterations needed' : 'No - Goals achieved'}
+                          {outputData.should_continue ? 'No - More iterations needed' : 'No - Goals achieved'}
                         </span>
                       </div>
                     </>
@@ -608,16 +823,70 @@ export default function ProjectStatus({ project, onComplete }) {
         })}
       </div>
 
-      {/* Connection Log */}
-      <div className="mt-6 p-4 rounded-xl bg-slate-900 border border-slate-700">
-        <div className="flex items-center gap-2 mb-3">
-          <Terminal className="w-4 h-4 text-slate-400" />
-          <span className="text-sm font-medium text-slate-300">Connection Log</span>
+      {/* Cycle Comparison (when Cycle 2 completes) */}
+      {cycleComparison && (
+        <div className="mt-6 p-4 rounded-xl bg-gradient-to-r from-violet-500/10 to-sky-500/10 border border-violet-500/30">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp className="w-5 h-5 text-violet-400" />
+            <h3 className="text-lg font-semibold text-white">Improvement Comparison: Cycle 1 → Cycle 2</h3>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700">
+                  <th className="text-left py-2 px-3 text-slate-400 font-medium">Metric</th>
+                  <th className="text-center py-2 px-3 text-slate-400 font-medium">Cycle 1</th>
+                  <th className="text-center py-2 px-3 text-slate-400 font-medium">Cycle 2</th>
+                  <th className="text-center py-2 px-3 text-slate-400 font-medium">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {['accuracy', 'f1', 'roc_auc', 'precision', 'recall'].map((metric) => {
+                  const c1Val = cycleComparison.cycle1[metric];
+                  const c2Val = cycleComparison.cycle2[metric];
+                  if (c1Val === undefined || c2Val === undefined) return null;
+                  
+                  const change = c2Val - c1Val;
+                  const isImproved = change > 0;
+                  
+                  return (
+                    <tr key={metric} className="border-b border-slate-700/50 hover:bg-slate-800/50">
+                      <td className="py-2 px-3 text-slate-300 capitalize font-medium">{metric}</td>
+                      <td className="py-2 px-3 text-center text-slate-400 font-mono">{c1Val.toFixed(4)}</td>
+                      <td className="py-2 px-3 text-center text-sky-400 font-mono font-medium">{c2Val.toFixed(4)}</td>
+                      <td className="py-2 px-3 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono ${
+                          isImproved ? 'bg-emerald-500/20 text-emerald-400' : change < 0 ? 'bg-red-500/20 text-red-400' : 'bg-slate-500/20 text-slate-400'
+                        }`}>
+                          {isImproved ? '📈' : change < 0 ? '📉' : '➡️'} {change >= 0 ? '+' : ''}{change.toFixed(4)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="space-y-1 max-h-32 overflow-y-auto font-mono text-xs">
+      )}
+
+      {/* Connection Log - Enhanced */}
+      <div className="mt-6 p-4 rounded-xl bg-slate-900 border border-slate-700">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-slate-400" />
+            <span className="text-sm font-medium text-slate-300">Pipeline Log</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Activity className="w-3 h-3" />
+            <span>{connectionLog.length} entries</span>
+          </div>
+        </div>
+        <div className="space-y-1 max-h-48 overflow-y-auto font-mono text-xs bg-slate-950 rounded-lg p-3">
           {connectionLog.map((log, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="text-slate-600">{log.time}</span>
+            <div key={i} className="flex items-start gap-2 py-0.5">
+              <span className="text-slate-600 shrink-0">[{log.time}]</span>
               <span className={
                 log.type === 'success' ? 'text-emerald-400' :
                 log.type === 'error' ? 'text-red-400' :
@@ -631,17 +900,23 @@ export default function ProjectStatus({ project, onComplete }) {
         </div>
       </div>
 
-      {/* Cycle Info */}
+      {/* Model Info */}
       <div className="mt-4 p-4 rounded-xl bg-slate-800/30 border border-slate-700/50 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Clock className="w-5 h-5 text-slate-400" />
           <p className="text-sm text-slate-300">
-            Cycle: <span className="font-medium text-sky-400">{status.current_cycle}</span>
+            Total Cycles: <span className="font-medium text-sky-400">{status.current_cycle}</span>
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Zap className="w-4 h-4" />
-          <span>Model: llama3.2:3b</span>
+        <div className="flex items-center gap-4 text-xs text-slate-500">
+          <div className="flex items-center gap-1">
+            <Zap className="w-4 h-4" />
+            <span>Model: llama3.2:3b</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Database className="w-4 h-4" />
+            <span>please.db</span>
+          </div>
         </div>
       </div>
 

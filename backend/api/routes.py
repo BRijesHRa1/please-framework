@@ -125,11 +125,12 @@ def run_pipeline(project_id: str, spec_sheet: dict):
         cycle1_results = execution_results
         current_cycle = 1
         
-        # ===== CYCLE 2 (if needed) =====
+        # ===== CYCLE 2 (always run) =====
+        # Always run 2 cycles before concluding to apply improvements
         max_iterations = spec_sheet.get('budget_constraints', {}).get('max_iterations', 2)
         
-        if assessment.get('should_continue', False) and current_cycle < max_iterations:
-            print(f"🔄 [{project_id}] Starting Cycle 2...")
+        if current_cycle < max_iterations:
+            print(f"🔄 [{project_id}] Starting Cycle 2 (applying improvements from Cycle 1)...")
             
             # Mark cycle 1 as completed before starting cycle 2
             CycleService.update_cycle_state(db, cycle.id, 1.0, 'assessor', 'completed')

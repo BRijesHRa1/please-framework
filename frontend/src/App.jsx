@@ -22,6 +22,11 @@ function App() {
 
   const handleComplete = (status) => {
     console.log('Project completed:', status);
+    // Navigate to project detail to view the full report
+    if (currentProject?.project_id) {
+      setViewingProjectId(currentProject.project_id);
+      setShowStatus(false);
+    }
   };
 
   const resetToUpload = () => {

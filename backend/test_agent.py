@@ -370,14 +370,15 @@ def test_agents():
         cycle1_results = execution_results
         
         # ============================================================================
-        # CYCLE 2 - IMPROVEMENT ITERATION (if needed)
+        # CYCLE 2 - IMPROVEMENT ITERATION (always run to apply improvements)
         # ============================================================================
         MAX_ITERATIONS = 2
         current_cycle = 1
         
-        if assessment['should_continue'] and current_cycle < MAX_ITERATIONS:
+        # Always run Cycle 2 to apply improvements before concluding
+        if current_cycle < MAX_ITERATIONS:
             print("\n" + "="*80)
-            print("🔄 STARTING CYCLE 2 - APPLYING IMPROVEMENTS")
+            print("🔄 STARTING CYCLE 2 - APPLYING IMPROVEMENTS FROM CYCLE 1")
             print("="*80)
             
             # Mark cycle 1 as completed before starting cycle 2
